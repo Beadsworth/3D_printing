@@ -5,10 +5,10 @@ from matplotlib import pyplot as plt
 from PIL import Image
 import numpy as np
 import tqdm
+# import matplotlib.tri as mtri
 
 
 def show_render(stl_file_path):
-
     # Create a new plot
     figure = plt.figure()
     axes = mplot3d.Axes3D(figure)
@@ -25,81 +25,108 @@ def show_render(stl_file_path):
     plt.show()
 
 
+class PixelGroup:
+
+    def __init__(self, img_path):
+
+        self.img = Image.open(img_path).convert('LA')
+        self.img.show()
+
+        self.img_arr = np.asarray(self.img)[:, :, 0]
+
+        self.height, self.width = self.img_arr.shape
+        self.num_of_pixels = self.height * self.width
+
+        # add extra row & column
+        fixed_img_arr = np.append(self.img_arr, np.zeros(shape=(1, self.width)), axis=0)
+        fixed_img_arr = np.append(fixed_img_arr, np.zeros(shape=(self.height + 1, 1)), axis=1)
+
+        self.fixed_img_arr = fixed_img_arr
+
+    def get_pixel_gen(self):
+        return (Pixel(img_arr=self.fixed_img_arr, x=x, y=y) for x in range(self.width) for y in range(self.height))
+
+    def make_stl(self):
+
+        # emboss_depth = 100
+        # emboss_width = 1000
+        #
+        # d_z = float(emboss_depth) / (img_data.max())
+        # d_x = float(emboss_width) / width
+        # d_y = d_x * height / width
+
+        num_of_triangles = 6 * self.num_of_pixels
+        cube = mesh.Mesh(np.zeros(num_of_triangles, dtype=mesh.Mesh.dtype))
+
+        i = -1
+        for pixel in tqdm.tqdm(self.get_pixel_gen(), total=self.num_of_pixels):
+            for triangle in pixel.triangles.values():
+                i += 1
+                for j in range(3):
+                    cube.vectors[i][j] = triangle[j]
+
+        # Write the mesh to file "cube.stl"
+        cube.save('output.stl')
+
+
+class Pixel:
+
+    def __init__(self, img_arr, x, y):
+        self.img_arr = img_arr
+        self.x = x
+        self.y = y
+        self.z = (1.0 / 25.5) * self.img_arr[y, x]
+
+    @property
+    def right_neighbor_z(self):
+        return (1.0 / 25.5) * self.img_arr[self.y, self.x + 1]
+
+    @property
+    def bottom_neighbor_z(self):
+        return (1.0 / 25.5) * self.img_arr[self.y + 1, self.x]
+
+    @property
+    def vertices(self):
+        vertex_list = {
+            'upper_left': (self.x, self.y, self.z),
+            'upper_right': (self.x + 1, self.y, self.z),
+            'lower_left': (self.x, self.y + 1, self.z),
+            'lower_right': (self.x + 1, self.y + 1, self.z),
+            'right_neighbor_upper_left': (self.x + 1, self.y, self.right_neighbor_z),
+            'right_neighbor_lower_left': (self.x + 1, self.y + 1, self.right_neighbor_z),
+            'bottom_neighbor_upper_left': (self.x, self.y + 1, self.bottom_neighbor_z),
+            'bottom_neighbor_upper_right': (self.x + 1, self.y + 1, self.bottom_neighbor_z)
+        }
+
+        return vertex_list
+
+    @property
+    def triangles(self):
+        v = self.vertices
+
+        triangles = {
+            'top_1': (v['upper_left'], v['upper_right'], v['lower_left']),
+            'top_2': (v['upper_right'], v['lower_left'], v['lower_right']),
+
+            'right_1': (v['upper_right'], v['right_neighbor_upper_left'], v['lower_right']),
+            'right_2': (v['right_neighbor_upper_left'], v['lower_right'], v['right_neighbor_lower_left']),
+
+            'bottom_1': (v['lower_left'], v['lower_right'], v['bottom_neighbor_upper_left']),
+            'bottom_2': (v['lower_right'], v['bottom_neighbor_upper_left'], v['bottom_neighbor_upper_right']),
+        }
+
+        return triangles
+
+
 if __name__ == '__main__':
     print("starting script...")
 
-    stl_file = r'C:\Users\James\PycharmProjects\3D_printing\stl_tools\HalfDonut.stl'
-    png_file = r'C:\Users\James\PycharmProjects\3D_printing\stl_tools\mg_logo.gif'
-    mcdonalds = r'C:\Users\James\PycharmProjects\3D_printing\stl_tools\mario.jpg'
-    # show_render(stl_file)
+    input_img_path = r'C:\Users\James\PycharmProjects\3D_printing\stl_tools\samus2.png'
+    PixelGroup(img_path=input_img_path).make_stl()
 
-    # im = imageio.imread(png_file)
-
-
-
-
-    img = Image.open(mcdonalds).convert('LA')
-    # img_data = np.asarray(img)[:, :, 0]
-    img_data = np.asarray(img)[:, :, 0]
-
-    # print(im.shape)
-    height, width = img_data.shape
-    num_of_pixels = height * width
-    emboss_depth = 100
-    emboss_width = 1000
-
-    d_z = float(emboss_depth)/(img_data.max())
-    d_x = float(emboss_width)/width
-    d_y = d_x * height / width
-
-    # pixels = []
-    number_of_verticies = 4*width*height
-    vertices = np.zeros(shape=(number_of_verticies, 3), dtype=np.int8)
-    for y in tqdm.tqdm(range(height)):
-        for x in range(width):
-            z = img_data[y, x]
-
-            pixel_num = 4 * y * width + 4 * x
-            vertices[pixel_num + 0] = x, y, z  # ul
-            vertices[pixel_num + 1] = x + 1, y, z  # ur
-            vertices[pixel_num + 2] = x, y + 1, z  # ll
-            vertices[pixel_num + 3] = x + 1, y + 1, z  # lr
-
-
-    # iterate over pixels
-    num_of_triangles = 6 * num_of_pixels
-    triangles = np.empty(shape=(num_of_triangles, 3), dtype=np.int64)
-    for i in tqdm.tqdm(range(num_of_pixels)):
-        vertex_index = i * 4
-        triangle_index = i * 6
-
-        # top
-        top_1 = [0, 1, 2]
-        top_2 = [1, 2, 3]
-
-        # right
-        right_1 = [1, 3, 0 + 4]
-        right_2 = [3, 4 + 0, 4 + 2]
-
-        # bottom
-        bottom_1 = [2, 3, 4 + 0]
-        bottom_2 = [3, 4 + 0, 4 + 1]
-
-
-
-        for j, arr in enumerate([top_1, top_2, right_1, right_2, bottom_1, bottom_2]):
-            triangles[triangle_index+j] = [x + vertex_index for x in arr]
-
-    # Create the mesh
-    cube = mesh.Mesh(np.zeros(triangles.shape[0], dtype=mesh.Mesh.dtype))
-    for i, f in tqdm.tqdm(enumerate(triangles[:-100])):
-        for j in range(3):
-            cube.vectors[i][j] = vertices[f[j], :]
-
-    # Write the mesh to file "cube.stl"
-    cube.save('cube.stl')
-
-    # plt.imshow(img)
-    # plt.show(block=True)
+    # triang = mtri.Triangulation(xy[:, 0], xy[:, 1], triangles=triangles)
+    # plt.triplot(triang, marker="o")
+    #
+    # plt.show()
 
     print("done!")
