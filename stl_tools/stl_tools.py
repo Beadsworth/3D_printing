@@ -46,6 +46,13 @@ class PixelGroup:
 
         self.fixed_img_arr = fixed_img_arr
 
+        emboss_depth_mm = 10
+        emboss_width_mm = 1000
+
+        self.dx = float(emboss_width_mm) / self.width
+        self.dy = self.dx * self.height / self.width
+        self.dz = float(emboss_depth_mm) / (self.img_arr.max())
+
     @property
     def output_stl_path(self):
         head, tail = os.path.split(self.img_path)
@@ -55,7 +62,9 @@ class PixelGroup:
         return new_path
 
     def get_pixel_gen(self):
-        return (Pixel(img_arr=self.fixed_img_arr, x=x, y=y) for x in range(self.width) for y in range(self.height))
+        # reverse y-axis to fix image
+        return (Pixel(img_arr=self.fixed_img_arr, img_height=self.height, img_width=self.width, x=x, y=y, dx=self.dx, dy=self.dy, dz=self.dz)
+        for x in range(self.width) for y in range(self.height))
 
     @property
     def triangle_count(self):
@@ -67,13 +76,6 @@ class PixelGroup:
         return tri_count
 
     def make_stl(self):
-
-        # emboss_depth = 100
-        # emboss_width = 1000
-        #
-        # d_z = float(emboss_depth) / (img_data.max())
-        # d_x = float(emboss_width) / width
-        # d_y = d_x * height / width
 
         stl = mesh.Mesh(np.zeros(self.triangle_count, dtype=mesh.Mesh.dtype))
 
@@ -90,21 +92,31 @@ class PixelGroup:
 
 class Pixel:
 
-    def __init__(self, img_arr, x, y):
+    def __init__(self, img_arr, img_height, img_width, x, y, dx, dy, dz):
         self.img_arr = img_arr
+        self.img_height, self.img_width = img_height, img_width
+        self.dx, self.dy, self.dz = dx, dy, dz
         self.x = x
         self.y = y
 
-        self.z_scale = 1.0 / 25.5
-        self.z = self.z_scale * self.img_arr[y, x]
+        # self.z_scale = 1.0 / 25.5
+        self.z = self.img_arr[y, x]
+
+    def coord_transform(self, coordinate_tuple):
+        x, y, z = coordinate_tuple
+        new_x = x * self.dx
+        new_y = (self.img_height - 1 - y) * self.dy
+        new_z = z * self.dz
+
+        return new_x, new_y, new_z
 
     @property
     def right_neighbor_z(self):
-        return self.z_scale * self.img_arr[self.y, self.x + 1]
+        return self.img_arr[self.y, self.x + 1]
 
     @property
     def bottom_neighbor_z(self):
-        return self.z_scale * self.img_arr[self.y + 1, self.x]
+        return self.img_arr[self.y + 1, self.x]
 
     @property
     def has_elevation_change_right(self):
@@ -115,16 +127,25 @@ class Pixel:
         return self.z != self.bottom_neighbor_z
 
     @property
+    def not_right_edge(self):
+        return self.x < self.img_width - 1
+
+    @property
+    def not_bottom_edge(self):
+        return self.y < self.img_height - 1
+
+    @property
     def vertices(self):
+        # do transformations here
         vertex_list = {
-            'upper_left': (self.x, self.y, self.z),
-            'upper_right': (self.x + 1, self.y, self.z),
-            'lower_left': (self.x, self.y + 1, self.z),
-            'lower_right': (self.x + 1, self.y + 1, self.z),
-            'right_neighbor_upper_left': (self.x + 1, self.y, self.right_neighbor_z),
-            'right_neighbor_lower_left': (self.x + 1, self.y + 1, self.right_neighbor_z),
-            'bottom_neighbor_upper_left': (self.x, self.y + 1, self.bottom_neighbor_z),
-            'bottom_neighbor_upper_right': (self.x + 1, self.y + 1, self.bottom_neighbor_z)
+            'upper_left': self.coord_transform((self.x, self.y, self.z)),
+            'upper_right': self.coord_transform((self.x + 1, self.y, self.z)),
+            'lower_left': self.coord_transform((self.x, self.y + 1, self.z)),
+            'lower_right': self.coord_transform((self.x + 1, self.y + 1, self.z)),
+            'right_neighbor_upper_left': self.coord_transform((self.x + 1, self.y, self.right_neighbor_z)),
+            'right_neighbor_lower_left': self.coord_transform((self.x + 1, self.y + 1, self.right_neighbor_z)),
+            'bottom_neighbor_upper_left': self.coord_transform((self.x, self.y + 1, self.bottom_neighbor_z)),
+            'bottom_neighbor_upper_right': self.coord_transform((self.x + 1, self.y + 1, self.bottom_neighbor_z))
         }
 
         return vertex_list
@@ -139,12 +160,12 @@ class Pixel:
         }
 
         # add right-side triangles if necessary
-        if self.has_elevation_change_right:
+        if self.has_elevation_change_right and self.not_right_edge:
             triangles['right_1'] = (v['upper_right'], v['right_neighbor_upper_left'], v['lower_right'])
             triangles['right_2'] = (v['right_neighbor_upper_left'], v['lower_right'], v['right_neighbor_lower_left'])
 
         # add bottom-side triangles if necessary
-        if self.has_elevation_change_bottom:
+        if self.has_elevation_change_bottom  and self.not_bottom_edge:
             triangles['bottom_1'] = (v['lower_left'], v['lower_right'], v['bottom_neighbor_upper_left'])
             triangles['bottom_2'] = (v['lower_right'], v['bottom_neighbor_upper_left'], v['bottom_neighbor_upper_right'])
 
@@ -154,7 +175,7 @@ class Pixel:
 if __name__ == '__main__':
     print("starting script...")
 
-    input_img_path = r'C:\Users\James\PycharmProjects\3D_printing\stl_tools\mg_logo.gif'
+    input_img_path = r'C:\Users\James\PycharmProjects\3D_printing\stl_tools\samus.jpg'
     PixelGroup(img_path=input_img_path).make_stl()
 
     # triang = mtri.Triangulation(xy[:, 0], xy[:, 1], triangles=triangles)
