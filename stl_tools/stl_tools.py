@@ -6,6 +6,7 @@ from PIL import Image
 import numpy as np
 import tqdm
 # import matplotlib.tri as mtri
+import os
 
 
 def show_render(stl_file_path):
@@ -29,7 +30,9 @@ class PixelGroup:
 
     def __init__(self, img_path):
 
-        self.img = Image.open(img_path).convert('LA')
+        self.img_path = img_path
+
+        self.img = Image.open(self.img_path).convert('LA')
         self.img.show()
 
         self.img_arr = np.asarray(self.img)[:, :, 0]
@@ -43,8 +46,25 @@ class PixelGroup:
 
         self.fixed_img_arr = fixed_img_arr
 
+    @property
+    def output_stl_path(self):
+        head, tail = os.path.split(self.img_path)
+        filename, ext = os.path.splitext(tail)
+        new_tail = '{}.stl'.format(filename)
+        new_path = os.path.join(head, new_tail)
+        return new_path
+
     def get_pixel_gen(self):
         return (Pixel(img_arr=self.fixed_img_arr, x=x, y=y) for x in range(self.width) for y in range(self.height))
+
+    @property
+    def triangle_count(self):
+        print("getting triangle count...")
+        tri_count = 0
+        for pixel in tqdm.tqdm(self.get_pixel_gen(), total=self.num_of_pixels):
+            tri_count += len(pixel.triangles.values())
+
+        return tri_count
 
     def make_stl(self):
 
@@ -55,18 +75,17 @@ class PixelGroup:
         # d_x = float(emboss_width) / width
         # d_y = d_x * height / width
 
-        num_of_triangles = 6 * self.num_of_pixels
-        cube = mesh.Mesh(np.zeros(num_of_triangles, dtype=mesh.Mesh.dtype))
+        stl = mesh.Mesh(np.zeros(self.triangle_count, dtype=mesh.Mesh.dtype))
 
         i = -1
         for pixel in tqdm.tqdm(self.get_pixel_gen(), total=self.num_of_pixels):
             for triangle in pixel.triangles.values():
                 i += 1
                 for j in range(3):
-                    cube.vectors[i][j] = triangle[j]
+                    stl.vectors[i][j] = triangle[j]
 
         # Write the mesh to file "cube.stl"
-        cube.save('output.stl')
+        stl.save(self.output_stl_path)
 
 
 class Pixel:
@@ -75,15 +94,25 @@ class Pixel:
         self.img_arr = img_arr
         self.x = x
         self.y = y
-        self.z = (1.0 / 25.5) * self.img_arr[y, x]
+
+        self.z_scale = 1.0 / 25.5
+        self.z = self.z_scale * self.img_arr[y, x]
 
     @property
     def right_neighbor_z(self):
-        return (1.0 / 25.5) * self.img_arr[self.y, self.x + 1]
+        return self.z_scale * self.img_arr[self.y, self.x + 1]
 
     @property
     def bottom_neighbor_z(self):
-        return (1.0 / 25.5) * self.img_arr[self.y + 1, self.x]
+        return self.z_scale * self.img_arr[self.y + 1, self.x]
+
+    @property
+    def has_elevation_change_right(self):
+        return self.z != self.right_neighbor_z
+
+    @property
+    def has_elevation_change_bottom(self):
+        return self.z != self.bottom_neighbor_z
 
     @property
     def vertices(self):
@@ -106,14 +135,18 @@ class Pixel:
 
         triangles = {
             'top_1': (v['upper_left'], v['upper_right'], v['lower_left']),
-            'top_2': (v['upper_right'], v['lower_left'], v['lower_right']),
-
-            'right_1': (v['upper_right'], v['right_neighbor_upper_left'], v['lower_right']),
-            'right_2': (v['right_neighbor_upper_left'], v['lower_right'], v['right_neighbor_lower_left']),
-
-            'bottom_1': (v['lower_left'], v['lower_right'], v['bottom_neighbor_upper_left']),
-            'bottom_2': (v['lower_right'], v['bottom_neighbor_upper_left'], v['bottom_neighbor_upper_right']),
+            'top_2': (v['upper_right'], v['lower_left'], v['lower_right'])
         }
+
+        # add right-side triangles if necessary
+        if self.has_elevation_change_right:
+            triangles['right_1'] = (v['upper_right'], v['right_neighbor_upper_left'], v['lower_right'])
+            triangles['right_2'] = (v['right_neighbor_upper_left'], v['lower_right'], v['right_neighbor_lower_left'])
+
+        # add bottom-side triangles if necessary
+        if self.has_elevation_change_bottom:
+            triangles['bottom_1'] = (v['lower_left'], v['lower_right'], v['bottom_neighbor_upper_left'])
+            triangles['bottom_2'] = (v['lower_right'], v['bottom_neighbor_upper_left'], v['bottom_neighbor_upper_right'])
 
         return triangles
 
@@ -121,7 +154,7 @@ class Pixel:
 if __name__ == '__main__':
     print("starting script...")
 
-    input_img_path = r'C:\Users\James\PycharmProjects\3D_printing\stl_tools\samus2.png'
+    input_img_path = r'C:\Users\James\PycharmProjects\3D_printing\stl_tools\mg_logo.gif'
     PixelGroup(img_path=input_img_path).make_stl()
 
     # triang = mtri.Triangulation(xy[:, 0], xy[:, 1], triangles=triangles)
