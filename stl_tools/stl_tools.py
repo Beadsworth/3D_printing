@@ -165,7 +165,7 @@ class Pixel:
             triangles['right_2'] = (v['right_neighbor_upper_left'], v['lower_right'], v['right_neighbor_lower_left'])
 
         # add bottom-side triangles if necessary
-        if self.has_elevation_change_bottom  and self.not_bottom_edge:
+        if self.has_elevation_change_bottom and self.not_bottom_edge:
             triangles['bottom_1'] = (v['lower_left'], v['lower_right'], v['bottom_neighbor_upper_left'])
             triangles['bottom_2'] = (v['lower_right'], v['bottom_neighbor_upper_left'], v['bottom_neighbor_upper_right'])
 
@@ -175,7 +175,7 @@ class Pixel:
 if __name__ == '__main__':
     print("starting script...")
 
-    input_img_path = r'C:\Users\James\PycharmProjects\3D_printing\stl_tools\samus.jpg'
+    input_img_path = r'C:\Users\James\PycharmProjects\3D_printing\stl_tools\mercury_messanger_surface.jpg'
     PixelGroup(img_path=input_img_path).make_stl()
 
     # triang = mtri.Triangulation(xy[:, 0], xy[:, 1], triangles=triangles)
