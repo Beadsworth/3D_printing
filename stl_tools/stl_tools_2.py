@@ -5,6 +5,7 @@ from matplotlib import pyplot as plt
 from PIL import Image
 import numpy as np
 import tqdm
+import cmath
 # import matplotlib.tri as mtri
 import os
 
@@ -47,7 +48,10 @@ class PixelGroup:
         self.super_pixel_height, self.super_pixel_width = self.height - 1, self.width - 1
         self.num_of_super_pixels = self.super_pixel_height * self.super_pixel_width
 
-        # sacling values
+        self.super_centroid = (self.super_pixel_width/2.0, self.super_pixel_height/2.0)
+        self.super_radius = max(self.super_centroid)
+
+        # scaling values
         self.dx = float(emboss_width_mm) / self.width
         self.dy = self.dx
         self.dz = float(emboss_depth_mm) / (self.img_arr.max())
@@ -70,10 +74,14 @@ class PixelGroup:
         # .   .   .     ->      .   .
         # .   .   .             .   .
 
-        for x in range(self.super_pixel_height):
-            for y in range(self.super_pixel_width):
+        for x in range(self.super_pixel_width):
+            for y in range(self.super_pixel_height):
                 yield SuperPixel(img_arr=self.img_arr, img_height=self.height, img_width=self.width,
+                                 super_centroid=self.super_centroid, super_radius=self.super_radius,
                                  x=x, y=y, dx=self.dx, dy=self.dy, dz=self.dz)
+
+    def super_pixel_within_radius_gen(self):
+        return (super_pixel for super_pixel in self.super_pixel_gen() if super_pixel.is_within_super_radius)
 
     @property
     def triangle_count(self):
@@ -85,7 +93,7 @@ class PixelGroup:
         stl = mesh.Mesh(np.zeros(self.triangle_count, dtype=mesh.Mesh.dtype))
 
         i = -1
-        for pixel in tqdm.tqdm(self.super_pixel_gen(), total=self.num_of_super_pixels):
+        for pixel in tqdm.tqdm(self.super_pixel_within_radius_gen(), total=self.num_of_super_pixels):
             for triangle in pixel.triangles:
                 i += 1
                 for j in range(3):
@@ -96,25 +104,35 @@ class PixelGroup:
 
 
 class SuperPixel:
-    """A Super-Pixel is a collection of four pixels. Each Super-Pixel represents two triangles in the ouput STL"""
-    def __init__(self, img_arr, img_height, img_width, x, y, dx, dy, dz):
+    """A Super-Pixel is a collection of four pixels. Each Super-Pixel represents two triangles in the output STL"""
+    def __init__(self, img_arr, img_height, img_width, super_centroid, super_radius, x, y, dx, dy, dz):
         self.img_arr = img_arr
         self.img_height, self.img_width = img_height, img_width
+
+        # super x, y coordinate in picture
         self.x, self.y = x, y
         self.dx, self.dy, self.dz = dx, dy, dz
+
+        # coordinates relative to picture centroid
+        centroid_x, centroid_y = super_centroid
+        self.rel_rad, self.rel_phi = cmath.polar(complex(centroid_x - self.x, centroid_y-self.y))
+        # self.rel_rad, self.rel_phi = cmath.polar(complex(centroid_y-self.y, centroid_x - self.x))
+
+        self.is_within_super_radius = self.rel_rad <= super_radius
 
     def coord_transform(self, coordinate_tuple):
         """perform scaling transformation"""
         x, y, z = coordinate_tuple
         new_x = x * self.dx
-        new_y = y * self.dy
+        # need to flip y-axis
+        new_y = (self.img_height - y) * self.dy
         new_z = z * self.dz
 
         return new_x, new_y, new_z
 
     def z_coord(self, x, y):
         """get z-coord for x, y pair"""
-        return self.img_arr[x, y]
+        return self.img_arr[y, x]
 
     @property
     def vertices(self):
@@ -161,7 +179,16 @@ class SuperPixel:
 if __name__ == '__main__':
     print("starting script...")
 
-    input_img_path = r'C:\Users\James\PycharmProjects\3D_printing\stl_tools\pics\images.jpg'
+    # input_img_path = r'C:\Users\James\PycharmProjects\3D_printing\stl_tools\pics\images.jpg'
+    # input_img_path = r'C:\Users\James\PycharmProjects\3D_printing\stl_tools\pics\smile.gif'
+    # input_img_path = r'C:\Users\James\PycharmProjects\3D_printing\stl_tools\pics\checkerboard.png'
+    # input_img_path = r'C:\Users\James\PycharmProjects\3D_printing\stl_tools\pics\samus2.png'
+    input_img_path = r'C:\Users\James\PycharmProjects\3D_printing\stl_tools\pics\goomba.png'
+
+
+
+
+    # input_img_path = r'C:\Users\James\PycharmProjects\3D_printing\stl_tools\pics\mg_logo.gif'
     PixelGroup(img_path=input_img_path, emboss_width_mm=1000, emboss_depth_mm=50).make_stl()
 
     print("done!")
