@@ -8,6 +8,7 @@ import tqdm
 import cmath
 # import matplotlib.tri as mtri
 import os
+import pandas as pd
 
 
 def show_render(stl_file_path):
@@ -105,6 +106,24 @@ class PixelGroup:
     def triangle_count(self):
         """number of trianlges in this pixel-group"""
         return 2 * self.num_of_super_pixels
+
+    @property
+    def all_open_points(self):
+        open_points = []
+        for super_pixel in tqdm.tqdm(self.super_pixel_within_radius_gen(), total=self.num_of_super_pixels):
+            open_points.extend(super_pixel.open_points)
+
+        open_points_df = pd.DataFrame(open_points)
+        open_points_df.rename(columns={0: 'x', 1: 'y', 2: 'z'}, inplace=True)
+        open_points_df[['rad', 'phi']] = open_points_df.apply(lambda row: get_rel_polar(centroid=self.super_centroid, point=(row['x'], row['y'])), axis=1, result_type='expand')
+
+        # remove duplicates and sort
+        open_points_df.drop_duplicates(subset=['x', 'y', 'z'], inplace=True)
+        open_points_df.sort_values(['phi', 'rad'], inplace=True)
+
+
+        for row in open_points_df.itertuples():
+            yield row.x, row.y, row.z
 
     def make_stl(self):
         """make and save stl file"""
@@ -206,13 +225,18 @@ class SuperPixel:
 
     # TODO: for each missing neighbor, add the corresponding missing vertices
     @property
-    def is_edge(self):
-        for neighbor in self.neighbors.values():
+    def missing_neighbors(self):
+        missing_neighbors = []
+        for direction, neighbor in self.neighbors.items():
             rel_rad, rel_phi = get_rel_polar(centroid=self.super_centroid, point=neighbor)
             if rel_rad > self.super_radius:
-                return True
+                missing_neighbors.append(direction)
 
-        return False
+        return missing_neighbors
+
+    @property
+    def open_points(self):
+        return (point for direction in self.missing_neighbors for corner, point in self.vertices.items() if direction in corner)
 
 
 if __name__ == '__main__':
@@ -228,6 +252,10 @@ if __name__ == '__main__':
 
 
     # input_img_path = r'C:\Users\James\PycharmProjects\3D_printing\stl_tools\pics\mg_logo.gif'
-    PixelGroup(img_path=input_img_path, emboss_width_mm=1000, emboss_depth_mm=50).make_stl()
+    # PixelGroup(img_path=input_img_path, emboss_width_mm=1000, emboss_depth_mm=50).make_stl()
+    temp = PixelGroup(img_path=input_img_path, emboss_width_mm=1000, emboss_depth_mm=50).all_open_points
+    for x in temp:
+        print(x)
+
 
     print("done!")
