@@ -27,6 +27,13 @@ def show_render(stl_file_path):
     plt.show()
 
 
+def get_rel_polar(centroid, point):
+    centroid_x, centroid_y = centroid
+    x, y = point
+    rel_rad, rel_phi = cmath.polar(complex(centroid_x - x, centroid_y - y))
+    return rel_rad, rel_phi
+
+
 class PixelGroup:
     """holds pixel-data for one image"""
 
@@ -39,7 +46,9 @@ class PixelGroup:
         self.img.show()
 
         # array of darkness values
-        self.img_arr = np.asarray(self.img)[:, :, 0]
+        # self.img_arr = np.asarray(self.img)[:, :, 0]
+        self.img_arr = np.array(self.img)[:, :, 0]
+
 
         # pixel dimensions
         self.height, self.width = self.img_arr.shape
@@ -47,9 +56,18 @@ class PixelGroup:
         # super-pixel dimensions
         self.super_pixel_height, self.super_pixel_width = self.height - 1, self.width - 1
         self.num_of_super_pixels = self.super_pixel_height * self.super_pixel_width
+        # self.super_centroid = (self.width/2.0, self.height/2.0)
 
         self.super_centroid = (self.super_pixel_width/2.0, self.super_pixel_height/2.0)
         self.super_radius = max(self.super_centroid)
+
+        # remove all data outside exclusion-radius
+        for x in range(self.super_pixel_width):
+            for y in range(self.super_pixel_height):
+                rel_rad, rel_phi = get_rel_polar(centroid=self.super_centroid, point=(x, y))
+                # add two-pixel buffer to outer edge
+                if rel_rad > self.super_radius - 2:
+                    self.img_arr[y, x] = 0
 
         # scaling values
         self.dx = float(emboss_width_mm) / self.width
@@ -113,12 +131,12 @@ class SuperPixel:
         self.x, self.y = x, y
         self.dx, self.dy, self.dz = dx, dy, dz
 
-        # coordinates relative to picture centroid
-        centroid_x, centroid_y = super_centroid
-        self.rel_rad, self.rel_phi = cmath.polar(complex(centroid_x - self.x, centroid_y-self.y))
-        # self.rel_rad, self.rel_phi = cmath.polar(complex(centroid_y-self.y, centroid_x - self.x))
+        self.super_centroid, self.super_radius = super_centroid, super_radius
 
-        self.is_within_super_radius = self.rel_rad <= super_radius
+        # coordinates relative to picture centroid
+        self.rel_rad, self.rel_phi = get_rel_polar(centroid=self.super_centroid, point=(self.x, self.y))
+
+        self.is_within_super_radius = self.rel_rad <= self.super_radius
 
     def coord_transform(self, coordinate_tuple):
         """perform scaling transformation"""
@@ -175,15 +193,36 @@ class SuperPixel:
 
         return triangles
 
+    @property
+    def neighbors(self):
+        """dictionary of super-pixel neighbors"""
+        neighbors = {
+            'N': (self.x, self.y + 1),
+            'E': (self.x + 1, self.y),
+            'S': (self.x, self.y - 1),
+            'W': (self.x - 1, self.y)
+        }
+        return neighbors
+
+    # TODO: for each missing neighbor, add the corresponding missing vertices
+    @property
+    def is_edge(self):
+        for neighbor in self.neighbors.values():
+            rel_rad, rel_phi = get_rel_polar(centroid=self.super_centroid, point=neighbor)
+            if rel_rad > self.super_radius:
+                return True
+
+        return False
+
 
 if __name__ == '__main__':
     print("starting script...")
 
     # input_img_path = r'C:\Users\James\PycharmProjects\3D_printing\stl_tools\pics\images.jpg'
     # input_img_path = r'C:\Users\James\PycharmProjects\3D_printing\stl_tools\pics\smile.gif'
-    # input_img_path = r'C:\Users\James\PycharmProjects\3D_printing\stl_tools\pics\checkerboard.png'
+    input_img_path = r'C:\Users\James\PycharmProjects\3D_printing\stl_tools\pics\checkerboard.png'
     # input_img_path = r'C:\Users\James\PycharmProjects\3D_printing\stl_tools\pics\samus2.png'
-    input_img_path = r'C:\Users\James\PycharmProjects\3D_printing\stl_tools\pics\goomba.png'
+    # input_img_path = r'C:\Users\James\PycharmProjects\3D_printing\stl_tools\pics\goomba.png'
 
 
 
